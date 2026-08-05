@@ -417,29 +417,49 @@ class ExecutionTrace:
         for items in children.values():
             items.sort(key=lambda pair: pair[0])
 
-        def render(qualname: Optional[str], caller_label: str) -> None:
-            for _, item in children.get(qualname, []):
-                if isinstance(item, _CallEvent):
-                    callee_label = self._label(item.callee)
-                    func_name = item.callee.split(".")[-1]
-                    call_desc = self._mermaid_escape(item.args_str) if item.args_str else ""
-                    lines.append(f"    {caller_label}->>{callee_label}: {func_name}({call_desc})")
-                    render(item.callee, callee_label)
-                    if item.retval_str is not None:
-                        # --x is Mermaid's "failed message" arrow: a dotted
-                        # line ending in a cross instead of an arrowhead, so
-                        # a call that raised looks visibly different from
-                        # one that actually returned something.
-                        arrow = "--x" if item.raised else "-->>"
-                        lines.append(f"    {callee_label}{arrow}{caller_label}: {self._mermaid_escape(item.retval_str)}")
+        # Iterative depth-first walk instead of real recursion: a recursive
+        # `render` would use one Python stack frame per level of *traced*
+        # call depth, so a deeply recursive traced program (a few hundred
+        # levels is enough) blows Python's own recursion limit before the
+        # diagram is even rendered. The explicit `stack` here stands in for
+        # the call stack a recursive version would use.
+        #
+        # Each entry is [caller_label, children, index, finish]: children/
+        # index track which child of this frame is being visited, and
+        # finish (None for the synthetic root) holds what to print once
+        # every child has been rendered - the deferred "return arrow" a
+        # recursive call would otherwise print right after its call returns.
+        stack = [["caller", children.get(None, []), 0, None]]
+        while stack:
+            caller_label, kids, idx, finish = stack[-1]
+            if idx >= len(kids):
+                stack.pop()
+                if finish is not None:
+                    callee_label, retval_str, raised, parent_label = finish
+                    # --x is Mermaid's "failed message" arrow: a dotted line
+                    # ending in a cross instead of an arrowhead, so a call
+                    # that raised looks visibly different from one that
+                    # actually returned something.
+                    arrow = "--x" if raised else "-->>"
+                    lines.append(f"    {callee_label}{arrow}{parent_label}: {self._mermaid_escape(retval_str)}")
+                continue
+            stack[-1][2] += 1
+            _, item = kids[idx]
+            if isinstance(item, _CallEvent):
+                callee_label = self._label(item.callee)
+                func_name = item.callee.split(".")[-1]
+                call_desc = self._mermaid_escape(item.args_str) if item.args_str else ""
+                lines.append(f"    {caller_label}->>{callee_label}: {func_name}({call_desc})")
+                finish = None
+                if item.retval_str is not None:
+                    finish = (callee_label, item.retval_str, item.raised, caller_label)
+                stack.append([callee_label, children.get(item.callee, []), 0, finish])
+            else:
+                fid = file_ids[item.path]
+                if item.direction == "read":
+                    lines.append(f"    {fid}-->>{caller_label}: read")
                 else:
-                    fid = file_ids[item.path]
-                    if item.direction == "read":
-                        lines.append(f"    {fid}-->>{caller_label}: read")
-                    else:
-                        lines.append(f"    {caller_label}->>{fid}: {item.direction}")
-
-        render(None, "caller")
+                    lines.append(f"    {caller_label}->>{fid}: {item.direction}")
         return "\n".join(lines)
 
     def to_reference_table(self) -> str:
