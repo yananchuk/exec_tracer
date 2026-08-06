@@ -1,4 +1,5 @@
 ```mermaid
+%%{init: {'maxTextSize': 100000}}%%
 sequenceDiagram
     actor caller
     box processor

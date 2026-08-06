@@ -70,7 +70,7 @@ not pasted in by hand:
 
 <!-- trace:quickstart:start -->
 ```mermaid
-%%{init: {'flowchart': {'nodeSpacing': 90, 'rankSpacing': 90}}}%%
+%%{init: {'maxTextSize': 100000, 'flowchart': {'nodeSpacing': 90, 'rankSpacing': 90}}}%%
 flowchart TD
     start(("caller"))
     subgraph toy_module
@@ -107,7 +107,7 @@ in the same way as above:
 
 <!-- trace:pipeline:start -->
 ```mermaid
-%%{init: {'flowchart': {'nodeSpacing': 90, 'rankSpacing': 90}}}%%
+%%{init: {'maxTextSize': 100000, 'flowchart': {'nodeSpacing': 90, 'rankSpacing': 90}}}%%
 flowchart TD
     start(("caller"))
     subgraph processor
@@ -178,6 +178,7 @@ module, and the caller is drawn as an actor instead of a boxed participant
 
 <!-- trace:pipeline_sequence:start -->
 ```mermaid
+%%{init: {'maxTextSize': 100000}}%%
 sequenceDiagram
     actor caller
     box processor
@@ -284,7 +285,7 @@ both the diagram and the table below.
 
 <!-- trace:tuning:start -->
 ```mermaid
-%%{init: {'flowchart': {'nodeSpacing': 90, 'rankSpacing': 90}}}%%
+%%{init: {'maxTextSize': 100000, 'flowchart': {'nodeSpacing': 90, 'rankSpacing': 90}}}%%
 flowchart TD
     start(("caller"))
     subgraph toy_module

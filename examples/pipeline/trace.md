@@ -1,5 +1,5 @@
 ```mermaid
-%%{init: {'flowchart': {'nodeSpacing': 90, 'rankSpacing': 90}}}%%
+%%{init: {'maxTextSize': 100000, 'flowchart': {'nodeSpacing': 90, 'rankSpacing': 90}}}%%
 flowchart TD
     start(("caller"))
     subgraph processor

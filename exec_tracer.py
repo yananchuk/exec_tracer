@@ -266,18 +266,21 @@ class ExecutionTrace:
     def _md_escape(text: str) -> str:
         return text.replace("|", "\\|").replace("\n", " ")
 
-    def to_mermaid(self, kind: str = "flowchart", max_edges: int = 400, chain_after: int = 3) -> str:
+    def to_mermaid(
+        self, kind: str = "flowchart", max_edges: int = 400, chain_after: int = 3, max_text_size: int = 100_000
+    ) -> str:
         if kind == "flowchart":
-            return self._to_flowchart(max_edges, chain_after)
+            return self._to_flowchart(max_edges, chain_after, max_text_size)
         if kind == "sequence":
-            return self._to_sequence(max_edges)
+            return self._to_sequence(max_edges, max_text_size)
         raise ValueError(f"kind must be 'flowchart' or 'sequence', got {kind!r}")
 
-    def _to_flowchart(self, max_edges: int, chain_after: int) -> str:
+    def _to_flowchart(self, max_edges: int, chain_after: int, max_text_size: int) -> str:
         ids: dict[str, str] = {}
         by_module: dict[str, list[str]] = defaultdict(list)
         lines = [
-            "%%{init: {'flowchart': {'nodeSpacing': 90, 'rankSpacing': 90}}}%%",
+            f"%%{{init: {{'maxTextSize': {max_text_size}, "
+            "'flowchart': {'nodeSpacing': 90, 'rankSpacing': 90}}}%%",
             "flowchart TD",
             '    start(("caller"))',
         ]
@@ -361,7 +364,7 @@ class ExecutionTrace:
         lines.append("    end")
         lines.extend(file_edges)
 
-    def _to_sequence(self, max_edges: int) -> str:
+    def _to_sequence(self, max_edges: int, max_text_size: int) -> str:
         # A flat pass over self.events (in call order) would print each
         # call's return right after its call, which is wrong the moment one
         # traced function calls another: the parent's return has to wait
@@ -389,7 +392,7 @@ class ExecutionTrace:
         for fe in self.file_events:
             file_ids.setdefault(fe.path, f"file{len(file_ids)}")
 
-        lines = ["sequenceDiagram", "    actor caller"]
+        lines = [f"%%{{init: {{'maxTextSize': {max_text_size}}}}}%%", "sequenceDiagram", "    actor caller"]
         for module, funcs in by_module.items():
             lines.append(f"    box {module}")
             for qualname in funcs:
