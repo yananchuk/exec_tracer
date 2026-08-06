@@ -61,6 +61,10 @@ def double(n):
     return n * 2
 
 
+def tag(label):
+    return label.upper()
+
+
 def returns_none():
     return None
 
@@ -202,6 +206,71 @@ class DiagramRenderingTests(unittest.TestCase):
         sequence = run.to_mermaid(kind="sequence")
         self.assertIn(f"{q('raises_value_error')}--x{q('catches_it')}: <raised>", sequence)
         self.assertIn(f"{q('catches_it')}-->>caller: 'handled'", sequence)
+
+    def test_sequence_view_leaves_a_short_run_fully_expanded(self):
+        def caller():
+            for i in range(4):
+                double(i)
+
+        with trace(root=str(HERE)) as run:
+            caller()
+
+        sequence = run.to_mermaid(kind="sequence")
+        self.assertNotIn("loop", sequence)
+        for i in range(4):
+            self.assertIn(f"double(n={i})", sequence)
+
+    def test_sequence_view_collapses_a_long_run_with_a_numeric_arg_into_a_range(self):
+        def caller():
+            for i in range(10):
+                double(i)
+
+        with trace(root=str(HERE)) as run:
+            caller()
+
+        sequence = run.to_mermaid(kind="sequence")
+        self.assertIn("loop 10x double", sequence)
+        self.assertIn("double(n: 0..9)", sequence)
+        for i in range(10):
+            self.assertNotIn(f"double(n={i})", sequence)
+
+    def test_sequence_view_collapses_a_long_run_with_varying_args_into_a_sample(self):
+        labels = ["apple", "banana", "cherry", "date", "fig", "grape", "honeydew", "kiwi", "lemon", "mango"]
+
+        def caller():
+            for label in labels:
+                tag(label)
+
+        with trace(root=str(HERE)) as run:
+            caller()
+
+        sequence = run.to_mermaid(kind="sequence")
+        self.assertIn("loop 10x tag", sequence)
+        self.assertIn("tag(label='apple')", sequence)
+        self.assertIn("tag(label='banana')", sequence)
+        self.assertIn("tag(label='lemon')", sequence)
+        self.assertIn("tag(label='mango')", sequence)
+        self.assertIn("6 more calls", sequence)
+        for label in labels[2:-2]:
+            self.assertNotIn(label, sequence)
+
+    def test_sequence_view_does_not_merge_runs_split_by_an_unrelated_call(self):
+        def caller():
+            for i in range(6):
+                double(i)
+            leaf()
+            for i in range(6, 12):
+                double(i)
+
+        with trace(root=str(HERE)) as run:
+            caller()
+
+        sequence = run.to_mermaid(kind="sequence")
+        self.assertEqual(sequence.count("loop 6x double"), 2)
+        first_loop = sequence.index("loop 6x double")
+        second_loop = sequence.index("loop 6x double", first_loop + 1)
+        leaf_call = sequence.index(f"{q('caller')}->>{q('leaf')}: leaf()")
+        self.assertTrue(first_loop < leaf_call < second_loop)
 
 
 class ReturnValueAndFileTrackingTests(unittest.TestCase):
