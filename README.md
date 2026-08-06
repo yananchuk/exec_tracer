@@ -369,9 +369,10 @@ flowchart TD
 ### After tracing, when rendering
 
 ```python
-run.to_mermaid(kind="flowchart", max_edges=400, chain_after=3, loop_collapse_after=5)
-run.save(path, kind="flowchart", max_edges=400, chain_after=3, loop_collapse_after=5)
-# to_markdown and show take the same four
+run.to_mermaid(kind="flowchart", max_edges=400, chain_after=3)
+run.to_mermaid(kind="sequence", max_edges=400, loop_collapse_after=5)
+run.save(path, kind="flowchart", max_edges=400, chain_after=3)
+# to_markdown and show take the same keyword arguments
 ```
 
 `chain_after` controls how many same-parent children it takes before the
