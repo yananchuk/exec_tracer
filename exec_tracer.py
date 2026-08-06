@@ -185,7 +185,7 @@ class ExecutionTrace:
             self.node_modules.setdefault(qualname, module)
             self.node_first_seq.setdefault(qualname, seq)
             if qualname not in self.node_files:
-                self.node_files[qualname] = f"{Path(filename).name}:{lineno}"
+                self.node_files[qualname] = f"{filename}:{lineno}"
             if args_str is not None and qualname not in self.node_args:
                 self.node_args[qualname] = args_str
         stack.append(ev)
@@ -340,7 +340,7 @@ class ExecutionTrace:
             if fe.path not in file_ids:
                 fid = f"f{len(file_ids)}"
                 file_ids[fe.path] = fid
-                short = self._mermaid_escape(Path(fe.path).name or fe.path)
+                short = self._mermaid_escape(fe.path)
                 file_node_decls.append(f'    {fid}[("{short}")]')
             fid = file_ids[fe.path]
             caller_id = "start" if fe.caller is None else ids.get(fe.caller)
@@ -406,7 +406,7 @@ class ExecutionTrace:
             # is what sets them apart here, not a shape.
             lines.append("    box files")
             for path, fid in file_ids.items():
-                short = self._mermaid_escape(Path(path).name or path)
+                short = self._mermaid_escape(path)
                 lines.append(f'        participant {fid} as {short}')
             lines.append("    end")
 
@@ -534,7 +534,7 @@ class trace:
         self.track_files = track_files
         self.result = ExecutionTrace()
         self._local = threading.local()  # _skip_stack is per-thread, same reason ExecutionTrace._stack is
-        self._scope_cache: dict[str, tuple[bool, str]] = {}
+        self._scope_cache: dict[str, tuple[bool, str, str]] = {}
         self._prev_profiler = None
         self._real_open = None
 
@@ -546,7 +546,7 @@ class trace:
             stack = self._local.skip_stack = []
         return stack
 
-    def _scope_and_module(self, filename: str) -> tuple[bool, str]:
+    def _scope_and_module(self, filename: str) -> tuple[bool, str, str]:
         cached = self._scope_cache.get(filename)
         if cached is not None:
             return cached
@@ -558,15 +558,23 @@ class trace:
         # project's own directory gives you, that makes them resolve inside
         # root, and they'd get traced as if they were your own code.
         if filename.startswith("<") and filename.endswith(">"):
-            in_scope, module = False, ""
+            in_scope, module, display_path = False, "", filename
         else:
             try:
                 rel = Path(filename).resolve().relative_to(self.root)
                 in_scope, module = True, (rel.parts[0] if len(rel.parts) > 1 else rel.stem)
+                display_path = f"./{rel.as_posix()}"
             except (ValueError, OSError):
-                in_scope, module = False, ""
-        self._scope_cache[filename] = (in_scope, module)
-        return in_scope, module
+                in_scope, module, display_path = False, "", filename
+        self._scope_cache[filename] = (in_scope, module, display_path)
+        return in_scope, module, display_path
+
+    def _display_path(self, path) -> str:
+        try:
+            rel = Path(path).resolve().relative_to(self.root)
+            return f"./{rel.as_posix()}"
+        except (ValueError, OSError):
+            return str(path)
 
     @staticmethod
     def _qualname(frame) -> str:
@@ -585,7 +593,7 @@ class trace:
     def _profiler(self, frame, event, arg):
         if event == "call":
             filename = frame.f_code.co_filename
-            in_scope, module = self._scope_and_module(filename)
+            in_scope, module, display_path = self._scope_and_module(filename)
             record = in_scope
             qualname = None
             if record:
@@ -603,7 +611,7 @@ class trace:
                 self.result._record_call(
                     qualname,
                     module,
-                    filename=filename,
+                    filename=display_path,
                     lineno=frame.f_code.co_firstlineno,
                     args_str=args_str,
                 )
@@ -623,7 +631,7 @@ class trace:
                     path_str = os.fspath(file)
                     if _is_tracked_data_file(path_str):
                         caller = result._stack[-1].callee if result._stack else None
-                        result._record_file_event(path_str, mode, _classify_mode(mode), caller)
+                        result._record_file_event(self._display_path(path_str), mode, _classify_mode(mode), caller)
             except Exception:
                 pass  # file tracking must never break the traced code
             return f

@@ -74,10 +74,10 @@ not pasted in by hand:
 flowchart TD
     start(("caller"))
     subgraph toy_module
-    n0["toy_module.main<br/>toy_module.py:13"]
-    n1["toy_module.load_data<br/>toy_module.py:1"]
-    n2["toy_module.process<br/>toy_module.py:5"]
-    n3["toy_module.summarize<br/>toy_module.py:9"]
+    n0["toy_module.main<br/>./toy_module.py:13"]
+    n1["toy_module.load_data<br/>./toy_module.py:1"]
+    n2["toy_module.process<br/>./toy_module.py:5"]
+    n3["toy_module.summarize<br/>./toy_module.py:9"]
     end
     start --> n0
     n0 --> n1
@@ -87,10 +87,10 @@ flowchart TD
 
 | Function | File | Input args | Return value | Internal variables (at return) |
 | --- | --- | --- | --- | --- |
-| toy_module.main | toy_module.py:13 | - | 12 | data={'a': 1, 'b': 2, 'c': 3}, processed={'a': 2, 'b': 4, 'c': 6} |
-| toy_module.load_data | toy_module.py:1 | - | {'a': 1, 'b': 2, 'c': 3} | - |
-| toy_module.process | toy_module.py:5 | data={'a': 1, 'b': 2, 'c': 3} | {'a': 2, 'b': 4, 'c': 6} | - |
-| toy_module.summarize | toy_module.py:9 | data={'a': 2, 'b': 4, 'c': 6} | 12 | - |
+| toy_module.main | ./toy_module.py:13 | - | 12 | data={'a': 1, 'b': 2, 'c': 3}, processed={'a': 2, 'b': 4, 'c': 6} |
+| toy_module.load_data | ./toy_module.py:1 | - | {'a': 1, 'b': 2, 'c': 3} | - |
+| toy_module.process | ./toy_module.py:5 | data={'a': 1, 'b': 2, 'c': 3} | {'a': 2, 'b': 4, 'c': 6} | - |
+| toy_module.summarize | ./toy_module.py:9 | data={'a': 2, 'b': 4, 'c': 6} | 12 | - |
 <!-- trace:quickstart:end -->
 
 ## Pipeline example
@@ -111,14 +111,14 @@ in the same way as above:
 flowchart TD
     start(("caller"))
     subgraph processor
-    n0["processor.run_pipeline<br/>processor.py:17"]
-    n3["processor.filter_above<br/>processor.py:4"]
-    n4["processor.summarize<br/>processor.py:8"]
-    n5["processor.write_output<br/>processor.py:12"]
+    n0["processor.run_pipeline<br/>./processor.py:17"]
+    n3["processor.filter_above<br/>./processor.py:4"]
+    n4["processor.summarize<br/>./processor.py:8"]
+    n5["processor.write_output<br/>./processor.py:12"]
     end
     subgraph reader
-    n1["reader.load_threshold<br/>reader.py:1"]
-    n2["reader.load_readings<br/>reader.py:6"]
+    n1["reader.load_threshold<br/>./reader.py:1"]
+    n2["reader.load_readings<br/>./reader.py:6"]
     end
     start --> n0
     n0 --> n1
@@ -131,9 +131,9 @@ flowchart TD
     n3 ~~~ n4
     n4 ~~~ n5
     subgraph files
-    f0[("threshold.txt")]
-    f1[("readings.txt")]
-    f2[("output.txt")]
+    f0[("./data/threshold.txt")]
+    f1[("./data/readings.txt")]
+    f2[("./data/output.txt")]
     end
     f0 -.->|read| n1
     f1 -.->|read| n2
@@ -142,20 +142,20 @@ flowchart TD
 
 | Function | File | Input args | Return value | Internal variables (at return) |
 | --- | --- | --- | --- | --- |
-| processor.run_pipeline | processor.py:17 | threshold_path='threshold.txt', readings_path='readings.txt', output_… | {'count': 3, 'total': 55.0} | threshold=10.0, readings=[5.0, 12.0, 18.0, 3.0, 25.0], kept=[12.0, 18.0, 25.0], summary={'count': 3… |
-| reader.load_threshold | reader.py:1 | path='threshold.txt' | 10.0 | f=<_io.TextIOWrapper name='thre… |
-| reader.load_readings | reader.py:6 | path='readings.txt' | [5.0, 12.0, 18.0, 3.0, 25.0] | f=<_io.TextIOWrapper name='read… |
-| processor.filter_above | processor.py:4 | readings=[5.0, 12.0, 18.0, 3.0, 25.0], threshold=10.0 | [12.0, 18.0, 25.0] | - |
-| processor.summarize | processor.py:8 | readings=[12.0, 18.0, 25.0] | {'count': 3, 'total': 55.0} | - |
-| processor.write_output | processor.py:12 | path='output.txt', summary={'count': 3, 'total': 55.0} | None | f=<_io.TextIOWrapper name='outp… |
+| processor.run_pipeline | ./processor.py:17 | threshold_path='data/threshold.txt', readings_path='data/readings.txt… | {'count': 3, 'total': 55.0} | threshold=10.0, readings=[5.0, 12.0, 18.0, 3.0, 25.0], kept=[12.0, 18.0, 25.0], summary={'count': 3… |
+| reader.load_threshold | ./reader.py:1 | path='data/threshold.txt' | 10.0 | f=<_io.TextIOWrapper name='data… |
+| reader.load_readings | ./reader.py:6 | path='data/readings.txt' | [5.0, 12.0, 18.0, 3.0, 25.0] | f=<_io.TextIOWrapper name='data… |
+| processor.filter_above | ./processor.py:4 | readings=[5.0, 12.0, 18.0, 3.0, 25.0], threshold=10.0 | [12.0, 18.0, 25.0] | - |
+| processor.summarize | ./processor.py:8 | readings=[12.0, 18.0, 25.0] | {'count': 3, 'total': 55.0} | - |
+| processor.write_output | ./processor.py:12 | path='data/output.txt', summary={'count': 3, 'total': 55.0} | None | f=<_io.TextIOWrapper name='data… |
 
 **Files touched:**
 
 | File | Mode | Direction | Called from |
 | --- | --- | --- | --- |
-| threshold.txt | `r` | read | reader.load_threshold |
-| readings.txt | `r` | read | reader.load_readings |
-| output.txt | `w` | write | processor.write_output |
+| ./data/threshold.txt | `r` | read | reader.load_threshold |
+| ./data/readings.txt | `r` | read | reader.load_readings |
+| ./data/output.txt | `w` | write | processor.write_output |
 <!-- trace:pipeline:end -->
 
 ### Sequence view
@@ -192,22 +192,22 @@ sequenceDiagram
         participant reader.load_readings as reader.load_readings
     end
     box files
-        participant file0 as threshold.txt
-        participant file1 as readings.txt
-        participant file2 as output.txt
+        participant file0 as ./data/threshold.txt
+        participant file1 as ./data/readings.txt
+        participant file2 as ./data/output.txt
     end
-    caller->>processor.run_pipeline: run_pipeline(threshold_path='threshold.txt', readings_path='readings.txt', output_…)
-    processor.run_pipeline->>reader.load_threshold: load_threshold(path='threshold.txt')
+    caller->>processor.run_pipeline: run_pipeline(threshold_path='data/threshold.txt', readings_path='data/readings.txt…)
+    processor.run_pipeline->>reader.load_threshold: load_threshold(path='data/threshold.txt')
     file0-->>reader.load_threshold: read
     reader.load_threshold-->>processor.run_pipeline: 10.0
-    processor.run_pipeline->>reader.load_readings: load_readings(path='readings.txt')
+    processor.run_pipeline->>reader.load_readings: load_readings(path='data/readings.txt')
     file1-->>reader.load_readings: read
     reader.load_readings-->>processor.run_pipeline: [5.0, 12.0, 18.0, 3.0, 25.0]
     processor.run_pipeline->>processor.filter_above: filter_above(readings=[5.0, 12.0, 18.0, 3.0, 25.0], threshold=10.0)
     processor.filter_above-->>processor.run_pipeline: [12.0, 18.0, 25.0]
     processor.run_pipeline->>processor.summarize: summarize(readings=[12.0, 18.0, 25.0])
     processor.summarize-->>processor.run_pipeline: {'count': 3, 'total': 55.0}
-    processor.run_pipeline->>processor.write_output: write_output(path='output.txt', summary={'count': 3, 'total': 55.0})
+    processor.run_pipeline->>processor.write_output: write_output(path='data/output.txt', summary={'count': 3, 'total': 55.0})
     processor.write_output->>file2: write
     processor.write_output-->>processor.run_pipeline: None
     processor.run_pipeline-->>caller: {'count': 3, 'total': 55.0}
@@ -289,9 +289,9 @@ both the diagram and the table below.
 flowchart TD
     start(("caller"))
     subgraph toy_module
-    n0["toy_module.main<br/>toy_module.py:13"]
-    n1["toy_module.process<br/>toy_module.py:5"]
-    n2["toy_module.summarize<br/>toy_module.py:9"]
+    n0["toy_module.main<br/>./toy_module.py:13"]
+    n1["toy_module.process<br/>./toy_module.py:5"]
+    n2["toy_module.summarize<br/>./toy_module.py:9"]
     end
     start --> n0
     n0 --> n1
@@ -300,9 +300,9 @@ flowchart TD
 
 | Function | File | Input args | Return value | Internal variables (at return) |
 | --- | --- | --- | --- | --- |
-| toy_module.main | toy_module.py:13 | - | 12 | data={'a': 1, 'b': 2, 'c': 3}, processed={'a': 2, 'b': 4, 'c': 6} |
-| toy_module.process | toy_module.py:5 | data={'a': 1, 'b': 2, 'c': 3} | {'a': 2, 'b': 4, 'c': 6} | - |
-| toy_module.summarize | toy_module.py:9 | data={'a': 2, 'b': 4, 'c': 6} | 12 | - |
+| toy_module.main | ./toy_module.py:13 | - | 12 | data={'a': 1, 'b': 2, 'c': 3}, processed={'a': 2, 'b': 4, 'c': 6} |
+| toy_module.process | ./toy_module.py:5 | data={'a': 1, 'b': 2, 'c': 3} | {'a': 2, 'b': 4, 'c': 6} | - |
+| toy_module.summarize | ./toy_module.py:9 | data={'a': 2, 'b': 4, 'c': 6} | 12 | - |
 <!-- trace:tuning:end -->
 
 ### After tracing, when rendering

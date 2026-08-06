@@ -11,7 +11,7 @@ from exec_tracer import trace
 import processor  # <- replace with your own module; it imports reader.py itself
 
 with trace(root=str(HERE)) as run:  # <- point at your project's source folder
-    summary = processor.run_pipeline("threshold.txt", "readings.txt", "output.txt")
+    summary = processor.run_pipeline("data/threshold.txt", "data/readings.txt", "data/output.txt")
 
 run.save("trace.md")                        # deduplicated call graph
 run.save("trace_sequence.md", kind="sequence")  # literal chronological call order
