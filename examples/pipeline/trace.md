@@ -3,14 +3,12 @@
 flowchart TD
     start(("caller"))
     subgraph processor
-        direction TB
     n0["processor.run_pipeline<br/>processor.py:17"]
     n3["processor.filter_above<br/>processor.py:4"]
     n4["processor.summarize<br/>processor.py:8"]
     n5["processor.write_output<br/>processor.py:12"]
     end
     subgraph reader
-        direction TB
     n1["reader.load_threshold<br/>reader.py:1"]
     n2["reader.load_readings<br/>reader.py:6"]
     end
@@ -25,7 +23,6 @@ flowchart TD
     n3 ~~~ n4
     n4 ~~~ n5
     subgraph files
-        direction TB
     f0[("threshold.txt")]
     f1[("readings.txt")]
     f2[("output.txt")]

@@ -74,7 +74,6 @@ not pasted in by hand:
 flowchart TD
     start(("caller"))
     subgraph toy_module
-        direction TB
     n0["toy_module.main<br/>toy_module.py:13"]
     n1["toy_module.load_data<br/>toy_module.py:1"]
     n2["toy_module.process<br/>toy_module.py:5"]
@@ -112,14 +111,12 @@ in the same way as above:
 flowchart TD
     start(("caller"))
     subgraph processor
-        direction TB
     n0["processor.run_pipeline<br/>processor.py:17"]
     n3["processor.filter_above<br/>processor.py:4"]
     n4["processor.summarize<br/>processor.py:8"]
     n5["processor.write_output<br/>processor.py:12"]
     end
     subgraph reader
-        direction TB
     n1["reader.load_threshold<br/>reader.py:1"]
     n2["reader.load_readings<br/>reader.py:6"]
     end
@@ -134,7 +131,6 @@ flowchart TD
     n3 ~~~ n4
     n4 ~~~ n5
     subgraph files
-        direction TB
     f0[("threshold.txt")]
     f1[("readings.txt")]
     f2[("output.txt")]
@@ -292,7 +288,6 @@ both the diagram and the table below.
 flowchart TD
     start(("caller"))
     subgraph toy_module
-        direction TB
     n0["toy_module.main<br/>toy_module.py:13"]
     n1["toy_module.process<br/>toy_module.py:5"]
     n2["toy_module.summarize<br/>toy_module.py:9"]

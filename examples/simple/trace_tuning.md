@@ -3,7 +3,6 @@
 flowchart TD
     start(("caller"))
     subgraph toy_module
-        direction TB
     n0["toy_module.main<br/>toy_module.py:13"]
     n1["toy_module.process<br/>toy_module.py:5"]
     n2["toy_module.summarize<br/>toy_module.py:9"]

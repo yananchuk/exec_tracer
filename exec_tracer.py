@@ -290,7 +290,6 @@ class ExecutionTrace:
 
         for module, node_lines in by_module.items():
             lines.append(f"    subgraph {module}")
-            lines.append("        direction TB")
             lines.extend(node_lines)
             lines.append("    end")
 
@@ -358,7 +357,6 @@ class ExecutionTrace:
             return
 
         lines.append("    subgraph files")
-        lines.append("        direction TB")
         lines.extend(file_node_decls)
         lines.append("    end")
         lines.extend(file_edges)
