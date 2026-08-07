@@ -221,6 +221,67 @@ data (`node_return`, `node_internals`, `file_events`, ...) is still there
 regardless of `kind`. If you want a table alongside a sequence diagram,
 build it yourself: `run.to_mermaid(kind="sequence") + "\n\n" + run.to_reference_table()`.
 
+## Loops example
+
+A tight loop calling the same small function over and over used to print
+every single call and return arrow in the sequence view, which stops being
+readable somewhere around a few dozen iterations. `examples/loops/demo.py`
+runs four loops of size 2, 4, 10, and 100 against `worker.py` to show what
+happens now: the two short loops (under the default `loop_collapse_after`
+of 5) still print every call, the 10-call loop collapses into a plain
+range since its only argument is a counter, and the 100-call loop
+collapses into a `loop` block showing the first two and last two real
+calls with a note for what got skipped in between:
+
+<!-- trace:loops_sequence:start -->
+```mermaid
+%%{init: {'maxTextSize': 100000}}%%
+sequenceDiagram
+    actor caller
+    box demo
+        participant __main__.run_loops as __main__.run_loops
+    end
+    box worker
+        participant worker.step_one as worker.step_one
+        participant worker.step_two as worker.step_two
+        participant worker.step_three as worker.step_three
+        participant worker.step_four as worker.step_four
+    end
+    caller->>__main__.run_loops: run_loops()
+    __main__.run_loops->>worker.step_one: step_one(i=0)
+    worker.step_one-->>__main__.run_loops: 1
+    __main__.run_loops->>worker.step_one: step_one(i=1)
+    worker.step_one-->>__main__.run_loops: 2
+    __main__.run_loops->>worker.step_two: step_two(i=0)
+    worker.step_two-->>__main__.run_loops: 0
+    __main__.run_loops->>worker.step_two: step_two(i=1)
+    worker.step_two-->>__main__.run_loops: 2
+    __main__.run_loops->>worker.step_two: step_two(i=2)
+    worker.step_two-->>__main__.run_loops: 4
+    __main__.run_loops->>worker.step_two: step_two(i=3)
+    worker.step_two-->>__main__.run_loops: 6
+    loop 10x step_three
+    __main__.run_loops->>worker.step_three: step_three(i: 0..9)
+    end
+    loop 100x step_four
+    __main__.run_loops->>worker.step_four: step_four(tag='alpha')
+    worker.step_four-->>__main__.run_loops: 'ALPHA'
+    __main__.run_loops->>worker.step_four: step_four(tag='bravo')
+    worker.step_four-->>__main__.run_loops: 'BRAVO'
+    Note over __main__.run_loops,worker.step_four: ... 96 more calls ...
+    __main__.run_loops->>worker.step_four: step_four(tag='charlie')
+    worker.step_four-->>__main__.run_loops: 'CHARLIE'
+    __main__.run_loops->>worker.step_four: step_four(tag='delta')
+    worker.step_four-->>__main__.run_loops: 'DELTA'
+    end
+    __main__.run_loops-->>caller: None
+```
+<!-- trace:loops_sequence:end -->
+
+The flowchart view doesn't need any of this: it dedupes by function
+regardless of how many times something was called, so `step_four` above
+is still just one node with a `|x100|` edge label, same as it always was.
+
 ## Files
 
 | File | What it is |
@@ -309,15 +370,19 @@ flowchart TD
 
 ```python
 run.to_mermaid(kind="flowchart", max_edges=400, chain_after=3)
+run.to_mermaid(kind="sequence", max_edges=400, loop_collapse_after=5)
 run.save(path, kind="flowchart", max_edges=400, chain_after=3)
-# to_markdown and show take the same three
+# to_markdown and show take the same keyword arguments
 ```
 
 `chain_after` controls how many same-parent children it takes before the
 vertical-stacking trick (see "Reading the diagram" above) kicks in.
 `max_edges` caps how many edges get drawn, for a trace with a huge number
 of calls. `kind="sequence"` renders the literal call order instead of the
-deduplicated graph.
+deduplicated graph. `loop_collapse_after` only matters for the sequence
+view: a run of more than that many consecutive calls to the same function
+collapses into a `loop` block instead of printing every call and return
+(see "Loops example" above).
 
 ## Dependencies
 

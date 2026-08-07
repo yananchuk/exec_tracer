@@ -267,12 +267,17 @@ class ExecutionTrace:
         return text.replace("|", "\\|").replace("\n", " ")
 
     def to_mermaid(
-        self, kind: str = "flowchart", max_edges: int = 400, chain_after: int = 3, max_text_size: int = 100_000
+        self,
+        kind: str = "flowchart",
+        max_edges: int = 400,
+        chain_after: int = 3,
+        max_text_size: int = 100_000,
+        loop_collapse_after: int = 5,
     ) -> str:
         if kind == "flowchart":
             return self._to_flowchart(max_edges, chain_after, max_text_size)
         if kind == "sequence":
-            return self._to_sequence(max_edges, max_text_size)
+            return self._to_sequence(max_edges, max_text_size, loop_collapse_after)
         raise ValueError(f"kind must be 'flowchart' or 'sequence', got {kind!r}")
 
     def _to_flowchart(self, max_edges: int, chain_after: int, max_text_size: int) -> str:
@@ -364,7 +369,7 @@ class ExecutionTrace:
         lines.append("    end")
         lines.extend(file_edges)
 
-    def _to_sequence(self, max_edges: int, max_text_size: int) -> str:
+    def _to_sequence(self, max_edges: int, max_text_size: int, loop_collapse_after: int) -> str:
         # A flat pass over self.events (in call order) would print each
         # call's return right after its call, which is wrong the moment one
         # traced function calls another: the parent's return has to wait
@@ -444,8 +449,15 @@ class ExecutionTrace:
                     arrow = "--x" if raised else "-->>"
                     lines.append(f"    {callee_label}{arrow}{parent_label}: {self._mermaid_escape(retval_str)}")
                 continue
-            stack[-1][2] += 1
             _, item = kids[idx]
+            if isinstance(item, _CallEvent):
+                run_len = self._leaf_run_length(kids, idx, children)
+                if run_len > loop_collapse_after:
+                    stack[-1][2] += run_len
+                    run = [ev for _, ev in kids[idx:idx + run_len]]
+                    self._emit_collapsed_run(lines, caller_label, run)
+                    continue
+            stack[-1][2] += 1
             if isinstance(item, _CallEvent):
                 callee_label = self._label(item.callee)
                 func_name = item.callee.split(".")[-1]
@@ -462,6 +474,86 @@ class ExecutionTrace:
                 else:
                     lines.append(f"    {caller_label}->>{fid}: {item.direction}")
         return "\n".join(lines)
+
+    def _leaf_run_length(self, kids, start, children) -> int:
+        _, first = kids[start]
+        if children.get(first.callee):
+            return 1
+        callee = first.callee
+        length = 1
+        for _, item in kids[start + 1:]:
+            if not isinstance(item, _CallEvent) or item.callee != callee or children.get(item.callee):
+                break
+            length += 1
+        return length
+
+    def _emit_collapsed_run(self, lines, caller_label, run) -> None:
+        func_name = run[0].callee.split(".")[-1]
+        callee_label = self._label(run[0].callee)
+        lines.append(f"    loop {len(run)}x {func_name}")
+        range_label = self._numeric_range_label(func_name, run)
+        if range_label is not None:
+            lines.append(f"    {caller_label}->>{callee_label}: {range_label}")
+        else:
+            for ev in run[:2]:
+                self._emit_call_pair(lines, caller_label, callee_label, ev)
+            skipped = len(run) - 4
+            lines.append(f"    Note over {caller_label},{callee_label}: ... {skipped} more calls ...")
+            for ev in run[-2:]:
+                self._emit_call_pair(lines, caller_label, callee_label, ev)
+        lines.append("    end")
+
+    def _emit_call_pair(self, lines, caller_label, callee_label, ev) -> None:
+        func_name = ev.callee.split(".")[-1]
+        call_desc = self._mermaid_escape(ev.args_str) if ev.args_str else ""
+        lines.append(f"    {caller_label}->>{callee_label}: {func_name}({call_desc})")
+        if ev.retval_str is not None:
+            arrow = "--x" if ev.raised else "-->>"
+            lines.append(f"    {callee_label}{arrow}{caller_label}: {self._mermaid_escape(ev.retval_str)}")
+
+    def _numeric_range_label(self, func_name, run) -> Optional[str]:
+        # Only collapses to a range when exactly one named arg differs and
+        # forms a plain arithmetic sequence across the whole run; anything
+        # messier falls back to the sampled display in _emit_collapsed_run.
+        parsed = []
+        for ev in run:
+            if not ev.args_str:
+                return None
+            pairs = []
+            for part in ev.args_str.split(", "):
+                if "=" not in part:
+                    return None
+                name, value = part.split("=", 1)
+                pairs.append((name, value))
+            parsed.append(pairs)
+
+        names = [name for name, _ in parsed[0]]
+        if any([name for name, _ in pairs] != names for pairs in parsed):
+            return None
+
+        varying = None
+        for i in range(len(names)):
+            if len({pairs[i][1] for pairs in parsed}) == 1:
+                continue
+            if varying is not None:
+                return None
+            varying = i
+        if varying is None:
+            return None
+
+        try:
+            nums = [int(pairs[varying][1]) for pairs in parsed]
+        except ValueError:
+            return None
+
+        step = nums[1] - nums[0]
+        if step == 0 or any(b - a != step for a, b in zip(nums, nums[1:])):
+            return None
+
+        fixed = ", ".join(f"{names[i]}={parsed[0][i][1]}" for i in range(len(names)) if i != varying)
+        range_part = f"{names[varying]}: {nums[0]}..{nums[-1]}"
+        label = ", ".join(part for part in (fixed, range_part) if part)
+        return f"{func_name}({label})"
 
     def to_reference_table(self) -> str:
         """One row per recorded function: full qualified name, file:line,
@@ -495,8 +587,16 @@ class ExecutionTrace:
             lines.append(f"| {path_disp} | `{fe.mode}` | {fe.direction} | {caller_disp} |")
         return "\n".join(lines)
 
-    def to_markdown(self, kind: str = "flowchart", max_edges: int = 400, chain_after: int = 3) -> str:
-        diagram = self.to_mermaid(kind=kind, max_edges=max_edges, chain_after=chain_after)
+    def to_markdown(
+        self,
+        kind: str = "flowchart",
+        max_edges: int = 400,
+        chain_after: int = 3,
+        loop_collapse_after: int = 5,
+    ) -> str:
+        diagram = self.to_mermaid(
+            kind=kind, max_edges=max_edges, chain_after=chain_after, loop_collapse_after=loop_collapse_after
+        )
         parts = [f"```mermaid\n{diagram}\n```"]
         if kind == "flowchart":
             parts.append(self.to_reference_table())
@@ -505,13 +605,26 @@ class ExecutionTrace:
                 parts.append(files_table)
         return "\n\n".join(parts)
 
-    def save(self, path, kind: str = "flowchart", max_edges: int = 400, chain_after: int = 3) -> None:
-        Path(path).write_text(self.to_markdown(kind=kind, max_edges=max_edges, chain_after=chain_after) + "\n")
+    def save(
+        self,
+        path,
+        kind: str = "flowchart",
+        max_edges: int = 400,
+        chain_after: int = 3,
+        loop_collapse_after: int = 5,
+    ) -> None:
+        markdown = self.to_markdown(
+            kind=kind, max_edges=max_edges, chain_after=chain_after, loop_collapse_after=loop_collapse_after
+        )
+        Path(path).write_text(markdown + "\n")
 
-    def show(self, kind: str = "flowchart", max_edges: int = 400, chain_after: int = 3):
+    def show(self, kind: str = "flowchart", max_edges: int = 400, chain_after: int = 3, loop_collapse_after: int = 5):
         from IPython.display import Markdown, display
 
-        display(Markdown(self.to_markdown(kind=kind, max_edges=max_edges, chain_after=chain_after)))
+        markdown = self.to_markdown(
+            kind=kind, max_edges=max_edges, chain_after=chain_after, loop_collapse_after=loop_collapse_after
+        )
+        display(Markdown(markdown))
 
 
 class trace:

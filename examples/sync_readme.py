@@ -21,6 +21,7 @@ DEMOS = [
     (HERE / "simple" / "demo_tuning.py", "tuning", HERE / "simple" / "trace_tuning.md"),
     (HERE / "pipeline" / "demo.py", "pipeline", HERE / "pipeline" / "trace.md"),
     (HERE / "pipeline" / "demo.py", "pipeline_sequence", HERE / "pipeline" / "trace_sequence.md"),
+    (HERE / "loops" / "demo.py", "loops_sequence", HERE / "loops" / "trace_sequence.md"),
 ]
 
 
