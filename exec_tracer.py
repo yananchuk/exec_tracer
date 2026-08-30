@@ -545,6 +545,86 @@ class ExecutionTrace:
         label = ", ".join(part for part in (fixed, range_part) if part)
         return f"{func_name}({label})"
 
+    def _leaf_run_length(self, kids, start, children) -> int:
+        _, first = kids[start]
+        if children.get(first.callee):
+            return 1
+        callee = first.callee
+        length = 1
+        for _, item in kids[start + 1:]:
+            if not isinstance(item, _CallEvent) or item.callee != callee or children.get(item.callee):
+                break
+            length += 1
+        return length
+
+    def _emit_collapsed_run(self, lines, caller_label, run) -> None:
+        func_name = run[0].callee.split(".")[-1]
+        callee_label = self._label(run[0].callee)
+        lines.append(f"    loop {len(run)}x {func_name}")
+        range_label = self._numeric_range_label(func_name, run)
+        if range_label is not None:
+            lines.append(f"    {caller_label}->>{callee_label}: {range_label}")
+        else:
+            for ev in run[:2]:
+                self._emit_call_pair(lines, caller_label, callee_label, ev)
+            skipped = len(run) - 4
+            lines.append(f"    Note over {caller_label},{callee_label}: ... {skipped} more calls ...")
+            for ev in run[-2:]:
+                self._emit_call_pair(lines, caller_label, callee_label, ev)
+        lines.append("    end")
+
+    def _emit_call_pair(self, lines, caller_label, callee_label, ev) -> None:
+        func_name = ev.callee.split(".")[-1]
+        call_desc = self._mermaid_escape(ev.args_str) if ev.args_str else ""
+        lines.append(f"    {caller_label}->>{callee_label}: {func_name}({call_desc})")
+        if ev.retval_str is not None:
+            arrow = "--x" if ev.raised else "-->>"
+            lines.append(f"    {callee_label}{arrow}{caller_label}: {self._mermaid_escape(ev.retval_str)}")
+
+    def _numeric_range_label(self, func_name, run) -> Optional[str]:
+        # Only collapses to a range when exactly one named arg differs and
+        # forms a plain arithmetic sequence across the whole run; anything
+        # messier falls back to the sampled display in _emit_collapsed_run.
+        parsed = []
+        for ev in run:
+            if not ev.args_str:
+                return None
+            pairs = []
+            for part in ev.args_str.split(", "):
+                if "=" not in part:
+                    return None
+                name, value = part.split("=", 1)
+                pairs.append((name, value))
+            parsed.append(pairs)
+
+        names = [name for name, _ in parsed[0]]
+        if any([name for name, _ in pairs] != names for pairs in parsed):
+            return None
+
+        varying = None
+        for i in range(len(names)):
+            if len({pairs[i][1] for pairs in parsed}) == 1:
+                continue
+            if varying is not None:
+                return None
+            varying = i
+        if varying is None:
+            return None
+
+        try:
+            nums = [int(pairs[varying][1]) for pairs in parsed]
+        except ValueError:
+            return None
+
+        step = nums[1] - nums[0]
+        if step == 0 or any(b - a != step for a, b in zip(nums, nums[1:])):
+            return None
+
+        fixed = ", ".join(f"{names[i]}={parsed[0][i][1]}" for i in range(len(names)) if i != varying)
+        range_part = f"{names[varying]}: {nums[0]}..{nums[-1]}"
+        label = ", ".join(part for part in (fixed, range_part) if part)
+        return f"{func_name}({label})"
+
     def to_reference_table(self) -> str:
         """One row per recorded function: full qualified name, file:line,
         input args, return value, and a few local variables at return."""
