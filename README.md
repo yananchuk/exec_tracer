@@ -33,6 +33,29 @@ path, and code typed directly into a notebook cell doesn't have one, so it
 stays invisible no matter what `root` is set to. Put the code you want to
 observe in a module and import it.
 
+## Command line
+
+`tracer_cli.py` wraps the same call for when you'd rather run a script or
+notebook from the shell than write the few lines above yourself:
+
+```
+uv run tracer_cli.py --py path/to/script.py --root src --save trace.md
+uv run tracer_cli.py --notebook path/to/nb.ipynb --root src --save trace.md --kind sequence
+```
+
+`--py`/`--notebook` pick the target and are mutually exclusive; `--root`
+and `--save` are required. The rest mirror `trace()`'s arguments and the
+rendering methods' keyword arguments covered under "Tuning" below:
+`--kind`, `--max-edges`, `--chain-after`, `--loop-collapse-after`,
+`--exclude`, `--max-depth`, `--arg-maxlen`, `--no-track-files`. `--kind
+both` writes two files instead of one, suffixed `_flowchart`/`_sequence`.
+
+For a notebook, the CLI parses the `.ipynb` JSON itself, drops IPython
+magics and shell-outs (`%...`, `%%...`, `!...`) line by line, printing each
+dropped line to stderr, and concatenates what's left into a temporary
+`.py` file under `--root` before tracing it: code needs a real file to be
+in scope, and a notebook cell doesn't have one (see the note above).
+
 ## How it works
 
 `sys.setprofile` installs a callback that the interpreter calls on every
@@ -287,6 +310,7 @@ is still just one node with a `|x100|` edge label, same as it always was.
 | File | What it is |
 | --- | --- |
 | `exec_tracer.py` | The tracer itself: `trace`/`ExecutionTrace`. Traces the call graph, plus return values, local variables at return, and file I/O tracking. |
+| `tracer_cli.py` | Command-line wrapper: traces a `.py` script or `.ipynb` notebook and saves the diagram, without writing any Python yourself. |
 | `examples/simple/` | Minimal example. `demo.py` traces `toy_module.py`; `demo_tuning.py` traces the same module with `exclude` applied, so you can see what that does. Outputs above are synced from here. |
 | `examples/pipeline/` | Multi-module, file-I/O example with a real dependency chain: `demo.py` calls `processor.run_pipeline`, which calls into `reader.py` and back into `processor.py` itself, reading two `.txt` files and writing one. Saves both a flowchart (`trace.md`) and a sequence diagram (`trace_sequence.md`) from the same run; both synced above. |
 | `tests/` | Unit tests, stdlib `unittest` only. Run with `python -m unittest discover -s tests`. |
