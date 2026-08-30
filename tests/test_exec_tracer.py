@@ -130,11 +130,9 @@ class TraceScopingTests(unittest.TestCase):
         self.assertNotIn(q("recurse_c"), run.node_modules)
 
     def test_synthetic_filenames_are_never_in_scope(self):
-        # Regression test: dataclass-generated __init__ methods report
-        # co_filename == "<string>". Resolving that like a real path used
-        # to land inside root whenever root happened to equal cwd (root="."
-        # from a project's own directory), pulling exec_tracer's own
-        # bookkeeping classes into the trace. See _scope_and_module.
+        """Regression test: a dataclass-generated __init__ reports co_filename
+        == "<string>", which used to resolve into root whenever root == cwd."""
+
         @dataclasses.dataclass
         class Point:
             x: int
@@ -184,12 +182,9 @@ class DiagramRenderingTests(unittest.TestCase):
         self.assertIn(": 10", sequence)
 
     def test_sequence_view_nests_child_calls_before_parents_return(self):
-        # Regression test: a flat pass over events used to print a call's
-        # return immediately after its call, so a parent that calls another
-        # traced function would appear to "return" before its own child had
-        # even been called. branch() calls leaf(), so branch's return arrow
-        # must come after leaf's whole call/return, not right after branch's
-        # own call arrow.
+        """Regression test: a flat pass over events used to print a call's
+        return right after its call, making a parent look like it returned
+        before its own child (leaf(), inside branch()) had even run."""
         with trace(root=str(HERE)) as run:
             branch()
 
@@ -287,10 +282,9 @@ class ReturnValueAndFileTrackingTests(unittest.TestCase):
         self.assertIn("total=42", run.node_internals[qualname])
 
     def test_raised_exception_is_distinguished_from_returning_none(self):
-        # sys.setprofile reports both a `return None` and an unhandled
-        # exception the same way (a 'return' event with arg=None), so
-        # without the opcode check in _call_raised these would be
-        # indistinguishable in the recorded trace.
+        """sys.setprofile reports a `return None` and an unhandled exception
+        the same way, so without the opcode check in _call_raised these
+        would look identical in the recorded trace."""
         with trace(root=str(HERE)) as run:
             returns_none()
             catches_it()  # calls raises_value_error() internally
@@ -341,13 +335,10 @@ class ReturnValueAndFileTrackingTests(unittest.TestCase):
 
 class ThreadingTests(unittest.TestCase):
     def test_calls_and_file_events_in_a_spawned_thread_are_captured(self):
-        # Regression test: sys.setprofile only applies to the thread that
-        # calls it, so a function that only ever runs inside a spawned
-        # thread used to be invisible - and any file it touched still got
-        # recorded (builtins.open is a global monkeypatch, not thread-
-        # local) but misattributed to whatever the *main* thread happened
-        # to have on its stack at the time, since the call stack used to be
-        # a single list shared by every thread.
+        """Regression test: sys.setprofile only applies to the thread that
+        calls it, so a function running only inside a spawned thread used to
+        be invisible, and any file it touched got misattributed to whatever
+        the main thread had on its (then shared) call stack."""
         with tempfile.TemporaryDirectory() as tmp:
             data_path = Path(tmp) / "data.txt"
             data_path.write_text("hello from a thread\n")
@@ -364,11 +355,8 @@ class ThreadingTests(unittest.TestCase):
             self.assertEqual(matching[0].caller, q("worker_reads_a_file"))
 
     def test_concurrent_threads_dont_lose_or_duplicate_events(self):
-        # 50 threads hitting _record_call at once, guarding against the
-        # shared seq counter / events list / node bookkeeping getting
-        # corrupted without a lock (a lost increment would show up as
-        # fewer than 50 unique seq numbers; a torn dict write could crash
-        # outright).
+        """50 threads hit _record_call at once; without its lock, a lost
+        increment would show up as fewer than 50 unique seq numbers."""
         with trace(root=str(HERE)) as run:
             spawns_many_threads(50)
 
