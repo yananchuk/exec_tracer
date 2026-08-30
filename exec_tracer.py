@@ -140,21 +140,9 @@ class ExecutionTrace:
         self.node_return: dict[str, str] = {}     # qualname -> repr of its first return value
         self.node_internals: dict[str, str] = {}  # qualname -> local vars at that first return
         self.file_events: list[_FileEvent] = []
-        # Each thread gets its own call stack: two threads running traced
-        # code at once must not see or pop each other's frames. A plain
-        # list here would let that happen (and did, before this existed -
-        # a file read on thread B would get attributed to whatever thread A
-        # happened to have on top of one shared stack).
-        self._local = threading.local()
-        # Everything below is genuinely shared across threads (one combined
-        # trace, not one per thread), so mutating it needs a real lock:
-        # CPython doesn't guarantee `self._seq += 1` or dict/list mutation
-        # is atomic across bytecode instructions, only within one of them.
-        self._lock = threading.Lock()
-        # One counter shared by calls and file events, so the two merge into
-        # a single chronological timeline in _to_sequence: seq 7 happened
-        # after whatever holds seq 6, whether that's a call or a file event.
-        self._seq = 0
+        self._local = threading.local()  # per-thread call stack, so concurrent threads don't see/pop each other's frames
+        self._lock = threading.Lock()  # guards _seq and the dicts/lists above: mutating them isn't atomic across threads
+        self._seq = 0  # shared by calls and file events, so _to_sequence can merge both into one chronological timeline
 
     @property
     def _stack(self) -> list[_CallEvent]:
@@ -171,9 +159,9 @@ class ExecutionTrace:
         lineno: int,
         args_str: Optional[str],
     ) -> None:
-        # Caller is the top of the *recorded* stack rather than the real one,
-        # so a library frame in between (say, df.apply calling back into your
-        # code) doesn't break the caller -> callee edge you actually care about.
+        """Caller is the top of the *recorded* stack, not the real one, so a
+        library frame in between (say, df.apply calling back into your code)
+        doesn't break the caller -> callee edge you actually care about."""
         stack = self._stack
         caller = stack[-1].callee if stack else None
         with self._lock:
@@ -303,9 +291,7 @@ class ExecutionTrace:
 
         edges = sorted(self.edge_counts.items(), key=lambda kv: -kv[1])[:max_edges]
 
-        # When did each (caller, callee) edge first happen? Used below to
-        # put sibling-chaining in the order things actually executed.
-        first_seen: dict[tuple[Optional[str], str], int] = {}
+        first_seen: dict[tuple[Optional[str], str], int] = {}  # (caller, callee) -> seq of its first occurrence
         for ev in self.events:
             key = (ev.caller, ev.callee)
             if key not in first_seen:
@@ -320,10 +306,9 @@ class ExecutionTrace:
             lines.append(f"    {a} -->{label} {b}")
             children_by_parent[caller].append((first_seen.get((caller, callee), 0), b))
 
-        # Mermaid spreads same-rank nodes sideways, so a parent with a lot
-        # of children would otherwise render as one wide row. Chaining them
+        # Mermaid spreads same-rank nodes sideways; chaining a wide fanout
         # together with invisible edges, in call order, forces a vertical
-        # stack instead. That's what actually keeps the diagram narrow.
+        # stack instead, keeping the diagram narrow.
         for children in children_by_parent.values():
             if len(children) > chain_after:
                 children.sort()
@@ -370,21 +355,23 @@ class ExecutionTrace:
         lines.extend(file_edges)
 
     def _to_sequence(self, max_edges: int, max_text_size: int, loop_collapse_after: int) -> str:
-        # A flat pass over self.events (in call order) would print each
-        # call's return right after its call, which is wrong the moment one
-        # traced function calls another: the parent's return has to wait
-        # until everything it called has finished. So this groups every
-        # call and file event by who did it (ev.caller / fe.caller), sorted
-        # by the shared seq counter, and walks it as a tree: a function's
-        # own children get rendered before its return arrow does.
+        """Groups every call and file event by who did it, then walks that
+        grouping as a tree so a function's own children render before its
+        return arrow does. A flat pass over self.events in call order would
+        print each call's return right after its call, which breaks the
+        moment one traced function calls another."""
         events = self.events[:max_edges]
+        lines, file_ids = self._sequence_participants(events, max_text_size)
+        children = self._sequence_children(events)
+        lines.extend(self._render_sequence_tree(children, file_ids, loop_collapse_after))
+        return "\n".join(lines)
 
-        # Participants are declared upfront in `box` blocks - the sequence
-        # diagram's equivalent of a flowchart's subgraph - so functions
-        # group visually by module and files get a box of their own,
-        # mirroring the module subgraphs and files subgraph in the diagram
-        # above. The caller is an actor instead of a participant, the same
-        # way it's drawn as a circle instead of a box in the flowchart.
+    def _sequence_participants(self, events: list[_CallEvent], max_text_size: int) -> tuple[list[str], dict[str, str]]:
+        """Declares functions and files as `box` groups upfront - the
+        sequence diagram's equivalent of a flowchart's subgraph - so
+        functions group visually by module and files get a box of their
+        own, mirroring the flowchart view. The caller is an actor instead
+        of a participant, same as it's a circle instead of a box there."""
         by_module: dict[str, list[str]] = defaultdict(list)
         seen_funcs: set[str] = set()
         for ev in events:
@@ -404,17 +391,19 @@ class ExecutionTrace:
                 lines.append(f"        participant {self._label(qualname)} as {qualname}")
             lines.append("    end")
         if file_ids:
-            # Mermaid sequence diagrams only offer two participant shapes,
-            # rectangle (participant) or stick figure (actor) - nothing
-            # like the flowchart's cylinder for a "data store" concept. So
-            # files stay rectangles too; the `files` box (grouping + label)
-            # is what sets them apart here, not a shape.
+            # Mermaid sequence diagrams have no "data store" shape like the
+            # flowchart's cylinder, so files stay rectangles; the `files`
+            # box is what sets them apart here, not a shape.
             lines.append("    box files")
             for path, fid in file_ids.items():
                 short = self._mermaid_escape(path)
                 lines.append(f'        participant {fid} as {short}')
             lines.append("    end")
+        return lines, file_ids
 
+    def _sequence_children(self, events: list[_CallEvent]) -> dict[Optional[str], list]:
+        """Every call and file event, grouped by who did it and sorted by
+        the shared seq counter, ready to walk as a tree."""
         children: dict[Optional[str], list] = defaultdict(list)
         for ev in events:
             children[ev.caller].append((ev.seq, ev))
@@ -422,19 +411,23 @@ class ExecutionTrace:
             children[fe.caller].append((fe.seq, fe))
         for items in children.values():
             items.sort(key=lambda pair: pair[0])
+        return children
 
-        # Iterative depth-first walk instead of real recursion: a recursive
-        # `render` would use one Python stack frame per level of *traced*
-        # call depth, so a deeply recursive traced program (a few hundred
-        # levels is enough) blows Python's own recursion limit before the
-        # diagram is even rendered. The explicit `stack` here stands in for
-        # the call stack a recursive version would use.
-        #
-        # Each entry is [caller_label, children, index, finish]: children/
-        # index track which child of this frame is being visited, and
-        # finish (None for the synthetic root) holds what to print once
-        # every child has been rendered - the deferred "return arrow" a
-        # recursive call would otherwise print right after its call returns.
+    def _render_sequence_tree(
+        self, children: dict[Optional[str], list], file_ids: dict[str, str], loop_collapse_after: int
+    ) -> list[str]:
+        """Iterative depth-first walk instead of real recursion: a recursive
+        `render` would use one Python stack frame per level of *traced* call
+        depth, so a deeply recursive traced program (a few hundred levels is
+        enough) blows Python's own recursion limit before the diagram is
+        even rendered. The explicit `stack` here stands in for the call
+        stack a recursive version would use: each entry is [caller_label,
+        children, index, finish], where children/index track which child of
+        this frame is being visited, and finish (None for the synthetic
+        root) holds what to print once every child has been rendered - the
+        deferred "return arrow" a recursive call would otherwise print
+        right after its call returns."""
+        lines: list[str] = []
         stack = [["caller", children.get(None, []), 0, None]]
         while stack:
             caller_label, kids, idx, finish = stack[-1]
@@ -442,11 +435,7 @@ class ExecutionTrace:
                 stack.pop()
                 if finish is not None:
                     callee_label, retval_str, raised, parent_label = finish
-                    # --x is Mermaid's "failed message" arrow: a dotted line
-                    # ending in a cross instead of an arrowhead, so a call
-                    # that raised looks visibly different from one that
-                    # actually returned something.
-                    arrow = "--x" if raised else "-->>"
+                    arrow = "--x" if raised else "-->>"  # --x is Mermaid's "failed message" arrow
                     lines.append(f"    {callee_label}{arrow}{parent_label}: {self._mermaid_escape(retval_str)}")
                 continue
             _, item = kids[idx]
@@ -473,7 +462,7 @@ class ExecutionTrace:
                     lines.append(f"    {fid}-->>{caller_label}: read")
                 else:
                     lines.append(f"    {caller_label}->>{fid}: {item.direction}")
-        return "\n".join(lines)
+        return lines
 
     def _leaf_run_length(self, kids, start, children) -> int:
         _, first = kids[start]
@@ -512,9 +501,10 @@ class ExecutionTrace:
             lines.append(f"    {callee_label}{arrow}{caller_label}: {self._mermaid_escape(ev.retval_str)}")
 
     def _numeric_range_label(self, func_name, run) -> Optional[str]:
-        # Only collapses to a range when exactly one named arg differs and
-        # forms a plain arithmetic sequence across the whole run; anything
-        # messier falls back to the sampled display in _emit_collapsed_run.
+        """Collapses to a range label only when exactly one named arg
+        differs and forms a plain arithmetic sequence across the whole run;
+        anything messier falls back to the sampled display in
+        _emit_collapsed_run."""
         parsed = []
         for ev in run:
             if not ev.args_str:
@@ -660,16 +650,16 @@ class trace:
         return stack
 
     def _scope_and_module(self, filename: str) -> tuple[bool, str, str]:
+        """Resolves whether `filename` is under root and, if so, which
+        module it belongs to. Synthetic filenames like "<string>"
+        (dataclass-generated __init__, frozen stdlib modules, exec()'d or
+        notebook code) aren't real paths - resolving them as relative would
+        tack them onto cwd, landing inside root whenever cwd equals root
+        (root="." from a project's own directory), so they're always
+        treated as out of scope instead."""
         cached = self._scope_cache.get(filename)
         if cached is not None:
             return cached
-        # Some filenames aren't real on-disk paths: dataclass-generated
-        # __init__ methods, frozen stdlib modules, exec()'d or notebook
-        # code all report something like "<string>" as co_filename. Treat
-        # those as relative and Path.resolve() just tacks them onto cwd. If
-        # cwd happens to equal root, which is exactly what root="." from a
-        # project's own directory gives you, that makes them resolve inside
-        # root, and they'd get traced as if they were your own code.
         if filename.startswith("<") and filename.endswith(">"):
             in_scope, module, display_path = False, "", filename
         else:
@@ -705,33 +695,35 @@ class trace:
 
     def _profiler(self, frame, event, arg):
         if event == "call":
-            filename = frame.f_code.co_filename
-            in_scope, module, display_path = self._scope_and_module(filename)
-            record = in_scope
-            qualname = None
-            if record:
-                qualname = self._qualname(frame)
-                if any(fnmatch.fnmatch(qualname, pat) for pat in self.exclude):
-                    record = False
-                elif self.max_depth is not None and len(self.result._stack) >= self.max_depth:
-                    record = False
-            self._skip_stack.append(record)
-            if record:
-                # Formatted every call, not just the first, so the sequence
-                # view can show each call's actual arguments and return
-                # value rather than repeating whatever the first call had.
-                args_str = _format_args(frame, maxlen=self.arg_maxlen)
-                self.result._record_call(
-                    qualname,
-                    module,
-                    filename=display_path,
-                    lineno=frame.f_code.co_firstlineno,
-                    args_str=args_str,
-                )
+            self._on_call(frame)
         elif event == "return":
-            # setprofile never sends unmatched 'return's, so this stays balanced
-            if self._skip_stack and self._skip_stack.pop():
-                self.result._record_return(frame, arg)
+            self._on_return(frame, arg)
+
+    def _on_call(self, frame) -> None:
+        filename = frame.f_code.co_filename
+        in_scope, module, display_path = self._scope_and_module(filename)
+        record = in_scope
+        qualname = None
+        if record:
+            qualname = self._qualname(frame)
+            if any(fnmatch.fnmatch(qualname, pat) for pat in self.exclude):
+                record = False
+            elif self.max_depth is not None and len(self.result._stack) >= self.max_depth:
+                record = False
+        self._skip_stack.append(record)
+        if record:
+            args_str = _format_args(frame, maxlen=self.arg_maxlen)  # every call, not just the first, for the sequence view
+            self.result._record_call(
+                qualname,
+                module,
+                filename=display_path,
+                lineno=frame.f_code.co_firstlineno,
+                args_str=args_str,
+            )
+
+    def _on_return(self, frame, arg) -> None:
+        if self._skip_stack and self._skip_stack.pop():  # setprofile never sends unmatched 'return's, so this stays balanced
+            self.result._record_return(frame, arg)
 
     def _wrap_open(self):
         real_open = self._real_open
@@ -752,15 +744,14 @@ class trace:
         return wrapped_open
 
     def __enter__(self) -> ExecutionTrace:
+        """threading.setprofile installs the same profiler on any thread
+        started via threading.Thread from here on, so calls inside a
+        spawned thread get recorded too. It doesn't reach threads already
+        running before this point, or ones started without the threading
+        module (raw _thread.start_new_thread) - both are limitations of
+        threading.setprofile itself, not something this class works around."""
         self._prev_profiler = sys.getprofile()
         sys.setprofile(self._profiler)
-        # threading.setprofile installs the same profiler on any thread
-        # started via threading.Thread from here on, so calls made inside
-        # a spawned thread get recorded too, not just the calling thread's
-        # own. It doesn't reach back to threads already running before this
-        # point, and doesn't cover threads started without the threading
-        # module (raw _thread.start_new_thread) - both are limitations of
-        # threading.setprofile itself, not something this class works around.
         threading.setprofile(self._profiler)
         if self.track_files:
             self._real_open = builtins.open
@@ -771,10 +762,9 @@ class trace:
         if self.track_files and self._real_open is not None:
             builtins.open = self._real_open
             self._real_open = None
-        # threading has no getprofile() to restore a prior hook the way
-        # sys.getprofile() does for the main thread, so this just clears it.
-        # A thread already running when the with block exits keeps whatever
-        # profiler it started with until it finishes on its own.
+        # threading has no getprofile() to restore a prior hook with, so this
+        # just clears it; a thread already running keeps its old profiler
+        # until it finishes on its own.
         threading.setprofile(None)
         sys.setprofile(self._prev_profiler)
         return False
